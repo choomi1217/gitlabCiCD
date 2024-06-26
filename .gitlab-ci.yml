@@ -1,0 +1,64 @@
+stages:
+  - deploy
+  - restart
+  - notification
+  
+variables:
+  MVN_PATH: "/usr/share/maven/bin/"
+
+package:
+  stage: deploy
+  tags: 
+    - myTag
+  before_script: 
+    - rm -rf ${CI_PROJECT_DIR}/.cache
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "dev" || $CI_COMMIT_BRANCH =~ /^dev\/.*$/'
+  script:    
+    - $MVN_PATH/mvn clean deploy -U -DskipTests
+  after_script:
+    - sudo cp -f target/app.war /home/app/platform/server/app
+    - sudo cp -f target/app.war /home/app/platform/server/app2
+
+restart:
+  stage: restart
+  tags:
+    - myTag
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "dev" || $CI_COMMIT_BRANCH =~ /^dev\/.*$/'
+  script:
+    - echo "Restarting app..."
+    - sudo systemctl restart app
+    - echo "Waiting for app to be up..."
+    - while ! sudo systemctl is-active --quiet app; do
+        echo "app is not up yet. Waiting...";
+        sleep 120000;
+      done
+    - echo "app is up. Restarting app2..."
+    - sudo systemctl restart app2
+    - echo "app2 has been restarted."
+
+    
+success_notification:
+  stage: notification
+  tags: 
+    - myTag
+  script:
+    - wget https://discord.com/api/webhooks/secret
+    - cd ..
+    - cp ./send.sh ./app/send.sh 
+    - cd app/
+    - ./send.sh success $WEBHOOK_URL
+  when: on_success
+
+failure_notification:
+  stage: notification
+  tags: 
+    - myTag
+  script:
+    - wget https://discord.com/api/webhooks/secret
+    - cd ..
+    - cp ./send.sh ./app/send.sh 
+    - cd app/
+    - ./send.sh failure $WEBHOOK_URL
+  when: on_failure
